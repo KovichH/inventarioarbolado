@@ -1173,22 +1173,138 @@
 
                 try {
                     const csvContent = this.db.exportToCSV();
-                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                    const link = document.createElement("a");
-                    const url = URL.createObjectURL(blob);
-                    link.setAttribute("href", url);
                     const now = new Date();
                     const timestamp = now.toISOString().slice(0, 19).replace(/:/g, '-');
-                    link.setAttribute("download", `arbolado_${timestamp}.csv`);
-                    link.style.visibility = 'hidden';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-
-                    this.showToast(`✅ Exportado: ${trees.length} registros`);
+                    const fileName = `arbolado_${timestamp}.csv`;
+                    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
                     
-                    setTimeout(() => {
-                        if (confirm(`Datos exportados exitosamente (${trees.length} registros).\n\n¿Deseas limpiar la memoria para empezar un nuevo inventario?\n\n(Los datos exportados están seguros en tu archivo CSV)`)) {
+                    // Mostrar modal de exportación con opciones
+                    const exportModal = document.createElement('div');
+                    exportModal.className = 'modal';
+                    exportModal.innerHTML = `
+                        <div class="modal-content" style="text-align: center;">
+                            <h2>📁 Exportar ${trees.length} registros</h2>
+                            <p style="color: #666; margin: 10px 0;">Archivo: ${fileName}</p>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
+                                <button id="exportShareBtn" style="padding: 14px; font-size: 16px; border: none; border-radius: 8px; background: #4CAF50; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                    <span class="material-icons">share</span>
+                                    Compartir archivo
+                                </button>
+                                <button id="exportDownloadBtn" style="padding: 14px; font-size: 16px; border: none; border-radius: 8px; background: #2196F3; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                    <span class="material-icons">download</span>
+                                    Descargar CSV
+                                </button>
+                                <button id="exportCopyBtn" style="padding: 14px; font-size: 16px; border: none; border-radius: 8px; background: #FF9800; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                    <span class="material-icons">content_copy</span>
+                                    Copiar al portapapeles
+                                </button>
+                                <hr style="border: none; border-top: 1px solid #eee; margin: 5px 0;">
+                                <button id="exportCleanBtn" style="padding: 12px; font-size: 14px; border: 1px solid #f44336; border-radius: 8px; background: white; color: #f44336; cursor: pointer;">
+                                    🧹 Limpiar memoria después de exportar
+                                </button>
+                                <button id="exportCancelBtn" style="padding: 12px; font-size: 14px; border: 1px solid #999; border-radius: 8px; background: white; color: #666; cursor: pointer;">
+                                    Cerrar
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(exportModal);
+                    
+                    exportModal.addEventListener('click', (e) => {
+                        if (e.target === exportModal) document.body.removeChild(exportModal);
+                    });
+                    
+                    // Opción 1: Compartir (Web Share API - funciona muy bien en móviles)
+                    document.getElementById('exportShareBtn').addEventListener('click', async () => {
+                        const file = new File(['\uFEFF' + csvContent], fileName, { type: 'text/csv' });
+                        
+                        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+                            try {
+                                await navigator.share({
+                                    title: 'Inventario de Arbolado',
+                                    text: `Inventario: ${trees.length} registros`,
+                                    files: [file]
+                                });
+                                this.showToast(`✅ Archivo compartido exitosamente`);
+                            } catch(err) {
+                                if (err.name !== 'AbortError') {
+                                    this.showToast('⚠️ Error al compartir, intenta Descargar');
+                                }
+                            }
+                        } else if (navigator.share) {
+                            // Compartir sin archivo (solo texto con datos)
+                            try {
+                                await navigator.share({
+                                    title: 'Inventario de Arbolado',
+                                    text: csvContent
+                                });
+                                this.showToast(`✅ Datos compartidos`);
+                            } catch(err) {
+                                if (err.name !== 'AbortError') {
+                                    this.showToast('⚠️ Error al compartir');
+                                }
+                            }
+                        } else {
+                            this.showToast('⚠️ Tu navegador no soporta compartir. Usa Descargar.');
+                        }
+                    });
+                    
+                    // Opción 2: Descarga directa con data URI (más compatible)
+                    document.getElementById('exportDownloadBtn').addEventListener('click', () => {
+                        // Método 1: data URI (más compatible con móviles)
+                        const dataUri = 'data:text/csv;charset=utf-8,' + encodeURIComponent('\uFEFF' + csvContent);
+                        const link = document.createElement('a');
+                        link.href = dataUri;
+                        link.download = fileName;
+                        link.target = '_blank';
+                        document.body.appendChild(link);
+                        link.click();
+                        
+                        setTimeout(() => {
+                            document.body.removeChild(link);
+                            // Si data URI falla en algunos navegadores, intentar con blob
+                            try {
+                                const blobUrl = URL.createObjectURL(blob);
+                                const link2 = document.createElement('a');
+                                link2.href = blobUrl;
+                                link2.download = fileName;
+                                document.body.appendChild(link2);
+                                link2.click();
+                                document.body.removeChild(link2);
+                                setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+                            } catch(e) { /* silenciar si ya funcionó el primero */ }
+                        }, 100);
+                        
+                        this.showToast(`✅ Descargando ${fileName}`);
+                    });
+                    
+                    // Opción 3: Copiar al portapapeles
+                    document.getElementById('exportCopyBtn').addEventListener('click', async () => {
+                        try {
+                            await navigator.clipboard.writeText(csvContent);
+                            this.showToast('✅ Datos copiados - Pega en Excel o Google Sheets');
+                        } catch(err) {
+                            // Fallback para navegadores sin clipboard API
+                            const textArea = document.createElement('textarea');
+                            textArea.value = csvContent;
+                            textArea.style.position = 'fixed';
+                            textArea.style.left = '-9999px';
+                            document.body.appendChild(textArea);
+                            textArea.select();
+                            try {
+                                document.execCommand('copy');
+                                this.showToast('✅ Datos copiados - Pega en Excel o Google Sheets');
+                            } catch(e) {
+                                this.showToast('⚠️ No se pudo copiar automáticamente');
+                            }
+                            document.body.removeChild(textArea);
+                        }
+                    });
+                    
+                    // Limpiar memoria
+                    document.getElementById('exportCleanBtn').addEventListener('click', () => {
+                        if (confirm('¿Seguro que deseas limpiar la memoria?\n\nAsegúrate de haber compartido o descargado el archivo primero.')) {
                             this.db.trees = [];
                             this.db.save();
                             this.markers.forEach(marker => this.map.removeLayer(marker));
@@ -1196,9 +1312,15 @@
                             this.renderTreeList();
                             this.updateStats();
                             this.checkStorageStatus();
+                            document.body.removeChild(exportModal);
                             this.showToast('🧹 Memoria limpiada - Listo para nuevo inventario');
                         }
-                    }, 500);
+                    });
+                    
+                    // Cerrar
+                    document.getElementById('exportCancelBtn').addEventListener('click', () => {
+                        document.body.removeChild(exportModal);
+                    });
                     
                 } catch(error) {
                     this.showToast('❌ Error al exportar: ' + error.message);
